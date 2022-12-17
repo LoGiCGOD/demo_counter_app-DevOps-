@@ -1,0 +1,118 @@
+pipeline{
+    
+    agent any 
+    
+    stages {
+        
+        stage('Git Checkout'){
+            
+            steps{
+                
+                script{
+                    
+                    git branch: 'main', url: 'https://github.com/LoGiCGOD/demo-counter-app.git'
+                }
+            }
+        }
+        stage('UNIT testing'){
+            
+            steps{
+                
+                script{
+                    
+                    sh 'mvn test'
+                }
+            }
+        }
+        stage('Integration testing'){
+            
+            steps{
+                
+                script{
+                    
+                    sh 'mvn verify -DskipUnitTests'
+                }
+            }
+        }
+        stage('Maven build'){
+            
+            steps{
+                
+                script{
+                    
+                    sh 'mvn clean install'
+                }
+            }
+        }
+        stage('Static code analysis'){
+            
+            steps{
+                
+                script{
+                    
+                    withSonarQubeEnv(credentialsId: 'sonar-api') {
+                        
+                        sh 'mvn clean package sonar:sonar'
+                    }
+                }
+                    
+                }
+            }
+        stage('Quality Gate Status'){
+                
+            steps{
+                    
+                script{
+                        
+                    waitForQualityGate abortPipeline: false, credentialsId: 'sonar-api'
+                    }
+                }
+            }
+        stage('upload war file to nexus'){
+            steps{
+                script{
+
+                    def readPomVersion = readMavenPom file: 'pom.xml'
+                    nexusArtifactUploader artifacts:
+                    [
+                        [
+                            artifactId: 'springboot', 
+                            classifier: '', 
+                            file: 'target/Uber.jar', 
+                            type: 'jar'
+                        ]
+                    ], 
+                    credentialsId: 'nexus-auth',
+                    groupId: 'com.example', 
+                    nexusUrl: '139.144.1.20:8081', 
+                    nexusVersion: 'nexus3', 
+                    protocol: 'http', 
+                    repository: 'demoapp-release', 
+                    version: "${readPomVersion.version}"
+                }
+            }
+        }
+        stage('Docker Image Build'){
+            steps{
+                script{
+                    sh 'docker image build -t $JOB_NAME:v1.$BUILD_ID .'
+                    sh 'docker image tag $JOB_NAME:v1.$BUILD_ID logicgod007/$JOB_NAME:v1.$BUILD_ID'
+                    sh 'docker image tag $JOB_NAME:v1.$BUILD_ID logicgod007/$JOB_NAME:latest'
+                }
+            }
+        }
+        stage('push image to dockerhub'){
+            steps{
+                script{
+                    withCredentials([string(credentialsId: 'dockerhub_creds', variable: 'docker_hub_cred')]) {
+                    
+                    sh 'docker login -u logicgod007 -p ${docker_hub_cred}'
+                    sh 'docker image push logicgod007/$JOB_NAME:v1.$BUILD_ID'
+                    sh 'docker image push logicgod007/$JOB_NAME:latest'
+                    }
+                }
+            }
+        }    
+    }
+        
+}
